@@ -3,9 +3,11 @@
 #include "ui_mainwindow.h"
 
 long ThreadFactory::sumOfElements = 0;
+long ThreadFactory::isBusy = 0;
+CRITICAL_SECTION cs;
 
 std::string getPriority(HANDLE handle) {
-    int priority = GetThreadPriority(handle);//GetPriorityClass(handle);
+    int priority = GetThreadPriority(handle);
     switch(priority) {
         case THREAD_PRIORITY_LOWEST: return "Idle";
         case THREAD_PRIORITY_BELOW_NORMAL: return "Below normal";
@@ -85,18 +87,26 @@ DWORD WINAPI processingArray(LPVOID lpParameter) {
 }
 
 ThreadFactory::ThreadFactory(int numOfThreads, int arraySize) {
-    mutex = CreateMutexA(NULL, false, NULL);
     this->sumOfElements = 0;
+    this->isBusy = 0;
     this->numOfThreads = numOfThreads;
     this->arraySize = arraySize;
     this->threads = new HANDLE[numOfThreads];
     this->threadsID = new DWORD[numOfThreads];
+
     initialiseArray();
-    int gap;
+
+    mutex = CreateMutexA(NULL, false, NULL);
+
+    semaphore = CreateSemaphore(NULL, 0, 1, NULL);
+    ReleaseSemaphore(semaphore, 1, NULL);
+
+    InitializeCriticalSection(&cs);
 
     MainWindow::ui->processesTable->setRowCount(this->numOfThreads);
     tableManager = CreateThread(NULL, NULL, updateTable, this, NULL, NULL);
 
+    int gap;
     for(int i = 0; i < numOfThreads; ++i) {
         gap = arraySize / numOfThreads;
         begin = gap * i;
@@ -113,11 +123,41 @@ ThreadFactory::ThreadFactory(int numOfThreads, int arraySize) {
 
 void ThreadFactory::calculateSumInCertainInterval(int begin, int end) {
     for(int i = begin; i < end; ++i) {
-        WaitForSingleObject(mutex, INFINITE);
-        sumOfElements += array[i];
-        ReleaseMutex(mutex);
+        //-------------------------- MUTEX ---------------------------------//
+
+        //WaitForSingleObject(mutex, INFINITE);
+        //sumOfElements += array[i];
+        //ReleaseMutex(mutex);
+
+        //--------------------- ATOMIC OPERATIONS --------------------------//
+
         //InterlockedExchangeAdd(&sumOfElements, array[i]);
-        Sleep(100);
+
+        //-------------------- MONITOR ALGORITHM ---------------------------//
+
+                                   //TO DO
+
+        //----------------------- BUSY WAITING -----------------------------//
+
+        /*while(InterlockedExchange(&ThreadFactory::isBusy, 1) == 1) {
+            Sleep(0);
+        }
+            sumOfElements += array[i];
+
+        InterlockedExchange (&ThreadFactory::isBusy, 0);*/
+
+        // ------------------------ SEMAPHORE ------------------------------//
+
+        /*WaitForSingleObject(semaphore, INFINITE);
+        sumOfElements += array[i];
+        ReleaseSemaphore(semaphore, 1, NULL);*/
+
+        // ---------------------- CRITICAL SECTION -------------------------//
+        EnterCriticalSection(&cs);
+        sumOfElements += array[i];
+        LeaveCriticalSection (&cs);
+
+        Sleep(10);
     }
 }
 
@@ -125,7 +165,8 @@ void ThreadFactory::initialiseArray() {
     this->array = new int[arraySize];
     //array[0] = 2;
     for(int i = 0; i < arraySize; ++i) {
-        array[i] = 2;//array[i-1] * i + exp(i);
+        array[i] = 2;
+        //array[i] = array[i-1] * i + exp(i);
     }
 }
 
@@ -147,6 +188,12 @@ void ThreadFactory::suspendThread() {
 void ThreadFactory::terminateThread() {
     QList<QTableWidgetItem*> items = MainWindow::ui->processesTable->selectedItems();
     TerminateThread(threads[items[0]->row()], EXIT_SUCCESS);
+}
+
+void ThreadFactory::terminateAllThreads() {
+    for (int i = 0; i < numOfThreads; ++i) {
+        TerminateThread(threads[i], EXIT_SUCCESS);
+    }
 }
 
 int ThreadFactory::getSum() const {
@@ -171,10 +218,9 @@ ThreadFactory::~ThreadFactory() {
     }
     TerminateThread(tableManager, EXIT_SUCCESS);
     CloseHandle(mutex);
+    CloseHandle(semaphore);
     CloseHandle(tableManager);
 
     delete this->threads;
     delete this->threadsID;
-
-    MainWindow::ui->processesTable->setRowCount(1);
 }

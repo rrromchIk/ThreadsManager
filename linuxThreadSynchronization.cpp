@@ -24,9 +24,7 @@ pthread_spinlock_t SPIN_LOCK;
 
 vector<double> array;                     //global array
 double sumOfElements = 0;                 //global sum
-std::chrono::_V2::system_clock::time_point begin_t;
-
-
+std::chrono::_V2::system_clock::time_point begin_t; //for calculating time
 
 typedef struct {                   //parameters to thread function
     int begin;
@@ -98,13 +96,13 @@ int main() {
     return 0;
 }
 
-
 //------------------------ functions realisation ----------------
 
 void creatingThreads(int numOfThreads) {
-    int gap;
     pthread_spin_init(&SPIN_LOCK, 0);
     begin_t = chrono::high_resolution_clock::now();
+	
+    int gap;
     for(int i = 0; i < numOfThreads; ++i) {
     	
     	//------------ calculate intervals -------------
@@ -134,20 +132,17 @@ void* threadTask(void* args) {
 
 void calculateSumInCertainInterval(int begin, int end) {
     for(int i = begin; i < end; ++i) {
-    
         //----------------- mutex ------------------
         //pthread_mutex_lock(&LOCK);
         //sumOfElements += array[i];
         //pthread_mutex_unlock(&LOCK);
         
         //-------------- spin lock ----------------
-        
         pthread_spin_lock(&SPIN_LOCK);
         sumOfElements += array[i];
         pthread_spin_unlock(&SPIN_LOCK);
         
         //sleep(0.1);
-        // TO DO
     }
     sleep(10);
 }
